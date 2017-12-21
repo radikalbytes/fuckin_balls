@@ -1,15 +1,21 @@
-
+/*
+Copyright 2017 Alfredo Prado Vega
+@radikalbytes
+http://www.radikalbytes.com
+This work is licensed under the Creative Commons Attribution-ShareAlike 3.0
+Unported License. To view a copy of this license, visit
+http://creativecommons.org/licenses/by-sa/3.0/ or send a letter to
+Creative Commons, PO Box 1866, Mountain View, CA 94042, USA.
+*/
 #define ESP32  // set sda and scl pins to 5,4 for ESP32 in MPU6050.h
-// Include the correct display library
-// For a connection via I2C using Wire include
 #include <Wire.h>  // Only needed for Arduino 1.6.5 and earlier
 #include <MPU6050.h>
-#include "SSD1306.h" // alias for `#include "SSD1306Wire.h"`
+#include "SSD1306.h" 
 #include <Average.h>
 
 // Include the UI lib
 #include "OLEDDisplayUi.h"
-//Include some images
+//Include some images and fonts
 #include "images2.h"
 #include "Am_tw14.h"
 #include "Am_tw16.h"
@@ -18,7 +24,6 @@
 
 // Initialize the OLED display using Wire library
 SSD1306  display(0x3c, 5, 4); // Lolin ESP-32 chinese
-
 OLEDDisplayUi ui     ( &display );
 //Initialize MPU6050
 MPU6050 mpu;
@@ -52,14 +57,14 @@ int16_t off_ax, off_ay, off_az;
 int16_t off_gx, off_gy, off_gz;
 
 //Variables de entorno
-const int numeroBolitas = 1; //Numero de particulas
-float elasticidad = -0.75;   //coeficiente de elasticidad con las paredes
+const int numeroBolitas = 2; //Particle number 
+float friccion = -0.75;   //coeficiente de friccion con las paredes
                              //Es negativo para cambiar el 
                              //sentido del vector velocidad
                              //en el choque
-float friccion = 0.35;  //Constante de friccion entre particulas 
-int anchoDisplay = 118;  //Ancho matriz
-int altoDisplay = 54;    //Alto mtriz
+float elasticidad = 0.2;  //Constante de elasticidad entre particulas 
+int anchoDisplay = 128;  //Ancho matriz
+int altoDisplay = 64;    //Alto mtriz
 int factorReduccion = 1000;  //Factor de reduccion para suavizar movimientos
 
 const float factorFiltro = 0.95;  //Factor de filtrado del acelerometro
@@ -76,7 +81,7 @@ struct particula {
  float velX;    //Velocidad X
  float velY;    //Velocidad Y
  float masa;    //Masa de la particula
-  
+ byte radio;    //radio de la particula
 };
 
 //Crear particulas
@@ -125,10 +130,10 @@ bool pause = 0;
 int alive = 1;
 int dead = 0;
 
-// Variable for Frame3
+// Variables for Frame3
 int mode_ = 0;
 
-//Variables for Frame4
+// Variables for Frame4
 int _state = 0;
 int _xx;
 int _delay;
@@ -329,35 +334,73 @@ void lee_acelerometro(){
 // particula 2 con la 3,4,5,6,....,n (con la 1 ya esta calculado)
 // .....
 // particula n-1 con la n
+
 void colision_bolas(){
   for (int o = 0;o < numeroBolitas-1; o++){ //particula a comparar
       for (int i = o + 1; i < numeroBolitas; i++) { //resto de particulas
+          float x1 = bolita[i].posX/factorReduccion;
+          float x2 = bolita[o].posX/factorReduccion;
+          float y1 = bolita[i].posY/factorReduccion;
+          float y2 = bolita[o].posY/factorReduccion;
+          //calculamos la distancia entre particulas usando Pitagoras
+          float dx = x1-x2;
+          float dy = y1-y2;
+          float distancia = sqrt(dx*dx + dy*dy);
+          float minimaDistancia = bolita[i].radio + bolita[o].radio;
+          //Si colisionan, calculamos los nuevos vectores de velocidad resultantes
+          if (distancia < minimaDistancia) { //colision
+            float angle = atan2(dy, dx);  //Angulo de la colision
+            //Calculo de la nueva posicion
+            float targetX = x1 + cos(angle) * minimaDistancia ;
+            float targetY = y1 + sin(angle) * minimaDistancia ;
+            //Desplazamiento producido y aplicacion de un coeficiente de
+            //reduccion por la friccion entre particulas
+            float ax = (targetX - x2) * elasticidad;
+            float ay = (targetY - y2) * elasticidad;
+            Serial.print (ax);
+            Serial.print("\t");
+            Serial.println(ay);
+            //Ajuste de las velocidades en base al desplazamiento generado
+            //La que impacta reduce su velocidad y la impactada la incrementa
+            //Habeis visto las bolas de billar cuando chocan???
+            bolita[o].velX -= (ax*factorReduccion*bolita[o].masa);
+            bolita[o].velY -= (ay*factorReduccion*bolita[o].masa);
+            bolita[i].velX += (ax*factorReduccion*bolita[i].masa);
+            bolita[i].velY += (ay*factorReduccion*bolita[i].masa);
+          }
+       } 
+  }
+}
+
+void colision2 (particula *_bolita){
+  for (int o = 0;o < numeroBolitas-1; o++){ //particula a comparar
+    for (int i = o + 1; i < numeroBolitas; i++) { //resto de particulas
       //calculamos la distancia entre particulas usando Pitagoras
-      float dx = bolita[i].posX/factorReduccion - bolita[o].posX/factorReduccion;
-      float dy = bolita[i].posY/factorReduccion - bolita[o].posY/factorReduccion;
+      float dx = _bolita[i].posX/factorReduccion - _bolita[o].posX/factorReduccion;
+      float dy = _bolita[i].posY/factorReduccion - _bolita[o].posY/factorReduccion;
       float distancia = sqrt(dx*dx + dy*dy);
+      float minimaDistancia = _bolita[i].radio + _bolita[o].radio;
       //Si colisionan, calculamos los nuevos vectores de velocidad resultantes
-      if (distancia < 8) { //colision
+      if (distancia < minimaDistancia) { //colision
         float angle = atan2(dy, dx);  //Angulo de la colision
         //Calculo de la nueva posicion
-        float targetX = bolita[o].posX/factorReduccion + cos(angle) ;
-        float targetY = bolita[o].posY/factorReduccion + sin(angle) ;
+        float targetX = _bolita[o].posX/factorReduccion + cos(angle) ;
+        float targetY = _bolita[o].posY/factorReduccion + sin(angle) ;
         //Desplazamiento producido y aplicacion de un coeficiente de
         //reduccion por la friccion entre particulas
-        float ax = (targetX - bolita[i].posX/factorReduccion) * friccion;
-        float ay = (targetY - bolita[i].posY/factorReduccion) * friccion;
+        float ax = (targetX - _bolita[i].posX/factorReduccion) * friccion;
+        float ay = (targetY - _bolita[i].posY/factorReduccion) * friccion;
         //Ajuste de las velocidades en base al desplazamiento generado
         //La que impacta reduce su velocidad y la impactada la incrementa
         //Habeis visto las bolas de billar cuando chocan???
-        bolita[o].velX -= ax*bolita[o].masa;
-        bolita[o].velY -= ay*bolita[o].masa;
-        bolita[i].velX += ax*bolita[i].masa;
-        bolita[i].velY += ay*bolita[i].masa;
+        bolita[o].velX -= ax*bolita[o].masa*factorReduccion;
+        bolita[o].velY -= ay*bolita[o].masa*factorReduccion;
+        _bolita[i].velX += ax*bolita[i].masa*factorReduccion;
+        _bolita[i].velY += ay*bolita[i].masa*factorReduccion;
       }
     } 
   }
 }
-
 /****************************************************/
 /*                                                  */
 /*           Posicionado de particulas              */
@@ -371,31 +414,32 @@ void mueve_bolas(){
                                               //y variamos la velocidad respecto a la masa
     bolita[o].posX += bolita[o].velX;         // Calculamos nueva posicion ejeX
     //Comprobamos colisiones con los extremos de la matriz
-    if (bolita[o].posX < 0) {        //Comprobamos si hay rebote en punto X=0
-        bolita[o].posX = 0;          //Posicionamos en X=0
-        bolita[o].velX = elasticidad*bolita[o].velX; //Invertimos la direccion del vector de 
+    if ((bolita[o].posX - (bolita[o].radio*factorReduccion)) < 0) {        //Comprobamos si hay rebote en punto X=0
+        bolita[o].posX = (bolita[o].radio*factorReduccion);          //Posicionamos en X=0
+        bolita[o].velX = friccion*bolita[o].velX; //Invertimos la direccion del vector de 
                                                      //velocidad y le aplicamos un coeficiente
-                                                     //de reduccion (elasticidad)
+                                                     //de reduccion (friccion)
     }
     //rebote en el otro extremo del ejeX procedemos igual
-    if (bolita[o].posX > ((anchoDisplay-1)*factorReduccion)) { 
-        bolita[o].posX = (anchoDisplay-1)*factorReduccion;
-        bolita[o].velX = elasticidad*bolita[o].velX;
+    else if ( ((bolita[o].posX)+(bolita[o].radio*factorReduccion)) > ((anchoDisplay-1)*factorReduccion) ) { 
+        bolita[o].posX = ((anchoDisplay-1)*factorReduccion) - (bolita[o].radio*factorReduccion);
+        bolita[o].velX = friccion*bolita[o].velX;
     }
+    
     //Colisiones con los limites del ejeY
     //Procedemos igual que con el eje X
     bolita[o].velY += (LoY/4)*bolita[o].masa;
     bolita[o].posY += bolita[o].velY;
     
-    if (bolita[o].posY < 0) {        
-        bolita[o].posY = 0;
-        bolita[o].velY = elasticidad*bolita[o].velY;
+    if ((bolita[o].posY - (bolita[o].radio*factorReduccion)) < 0) {        
+        bolita[o].posY = (bolita[o].radio*factorReduccion);
+        bolita[o].velY = friccion*bolita[o].velY;
     }
-
-    if (bolita[o].posY > ((altoDisplay-1)*factorReduccion)) {  
-        bolita[o].posY = (altoDisplay-1)*factorReduccion;
-        bolita[o].velY = elasticidad*bolita[o].velY;
+    else if ( ((bolita[o].posY)+(bolita[o].radio*factorReduccion)) > ((altoDisplay-1)*factorReduccion) ) { 
+        bolita[o].posY = ((altoDisplay-1)*factorReduccion) - (bolita[o].radio*factorReduccion);
+        bolita[o].velY = friccion*bolita[o].velY;
     }
+    
   }
 }
 
@@ -787,16 +831,26 @@ void drawFrame6(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int1
      //display->setTextAlignment(TEXT_ALIGN_LEFT);
      display->setColor(WHITE);
      display->drawRect(0+x,0+y,128,64);
-     //display->setFont(ArialMT_Plain_10);
+     display->setFont(ArialMT_Plain_10);
      //display->drawString(20+x, 20+y, "Xacel: " + String(LoX));
      //display->drawString(20+x, 30+y, "Yacel: " + String(LoY));
      for (int o = 0;o < numeroBolitas; o++){
        //display->setPixel(bolita[o].posX/factorReduccion+1+x, bolita[o].posY/factorReduccion+1+y);
-       display->drawXbm(bolita[o].posX/factorReduccion+1+x, bolita[o].posY/factorReduccion+1+y, bola8x8_width, bola8x8_height, bola8x8);
+      // display->drawString(0+x, 20+y, "X: " + String((bolita[o].posX/factorReduccion)+1-bolita[o].radio+x)+" "+String((bolita[o].posX/factorReduccion+1)));
+      // display->drawString(0+x, 30+y, "Y: " + String((bolita[o].posY/factorReduccion)+1-bolita[o].radio+y)+" "+String((bolita[o].posY/factorReduccion+1)));
+       switch (bolita[o].radio){
+         case 4:
+           display->drawXbm((bolita[o].posX/factorReduccion)-bolita[o].radio+x, (bolita[o].posY/factorReduccion)-bolita[o].radio+y, bola8x8_width, bola8x8_height, bola8x8);
+         break;
+         case 7:
+           display->drawXbm((bolita[o].posX/factorReduccion)-bolita[o].radio+x+1, (bolita[o].posY/factorReduccion)-bolita[o].radio+y+1, bola13x13_width, bola13x13_height, bola13x13);
+         break;
+       }// End switch
      }
      if (millis()-since>30){  
        lee_acelerometro();  // Lee acelerometro
-       colision_bolas();    // Calculo de colisiones
+       colision_bolas();
+       //colision2(bolita);    // Calculo de colisiones
        mueve_bolas();       // Movimiento de las particulas
        since = millis();
      }
@@ -860,8 +914,11 @@ for (int o = 0;o < numeroBolitas; o++){
   bolita[o].posY = random(altoDisplay*factorReduccion);
   bolita[o].velX = 0;
   bolita[o].velY = 0;
-  bolita[o].masa = random(10,20)/10;
+  if(o%3 == 0) bolita[o].radio = 7;
+  else bolita[o].radio = 4;
+  bolita[o].masa = bolita[o].radio / 4;
 }
+
 
   // If you want, you can set accelerometer offsets
   
