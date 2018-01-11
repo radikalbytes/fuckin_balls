@@ -6,6 +6,11 @@ This work is licensed under the Creative Commons Attribution-ShareAlike 3.0
 Unported License. To view a copy of this license, visit
 http://creativecommons.org/licenses/by-sa/3.0/ or send a letter to
 Creative Commons, PO Box 1866, Mountain View, CA 94042, USA.
+
+The part of sand effect code is from Adafruit Industries
+https://learn.adafruit.com/animated-led-sand/circuit-diagram and have their 
+own license. Please check it at adafruit.com
+
 */
 #define ESP32  // set sda and scl pins to 5,4 for ESP32 in MPU6050.h
 #include <Wire.h>  // Only needed for Arduino 1.6.5 and earlier
@@ -460,6 +465,11 @@ void mueve_bolas(){
   }
 }
 
+/**
+ * Sand Effect 
+ * Algorithm code from Adafruit Industries
+ * https://learn.adafruit.com/animated-led-sand/circuit-diagram
+ */
 void mueve_arena(){
   int16_t aax, aay, aaz; 
   // Read accelerometer...
