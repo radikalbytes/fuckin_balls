@@ -153,7 +153,24 @@ int _state5 = 0;
 int randnumber;
 int push = 0;
 
+//sand effect
+#define N_GRAINS     50 // Number of grains of sand
+#define WIDTH_G        20 // Display width in pixels
+#define HEIGHT_G       15 // Display height in pixels
+// The 'sand' grains exist in an integer coordinate space that's 256X
+// the scale of the pixel grid, allowing them to move and interact at
+// less than whole-pixel increments.
+#define MAX_X (WIDTH_G  * 256 - 1) // Maximum X coordinate in grain space
+#define MAX_Y (HEIGHT_G * 256 - 1) // Maximum Y coordinate
+struct Grain {
+  int16_t  x,  y; // Position
+  int16_t vx, vy; // Velocity
+} grain[N_GRAINS];
 
+uint32_t        prevTime   = 0;      // Used for frames-per-second throttle
+uint8_t         backbuffer = 0,      // Index for double-buffered animation
+                img[WIDTH_G * HEIGHT_G]; // Internal 'map' of pixels
+                
 
 float mean ( float * _array, int len ){
   ave.clear();
@@ -441,6 +458,142 @@ void mueve_bolas(){
     }
     
   }
+}
+
+void mueve_arena(){
+  int16_t aax, aay, aaz; 
+  // Read accelerometer...
+  Vector rawAccel = mpu.readRawAccel();
+  aax = rawAccel.XAxis;
+  if (aax>32767) aax = aax - 65535;
+  aay = rawAccel.YAxis;
+  if (aay>32767) aay = aay - 65535;
+  aaz = rawAccel.ZAxis;
+  if (aaz>32767) aaz = aaz - 65535;
+  
+  aax = aax / 256;      // Transform accelerometer axes
+  aay =  aay / 256;      // to grain coordinate space
+  aaz = abs(aaz) / 2048; // Random motion factor
+  aaz = (aaz >= 3) ? 1 : 4 - aaz;      // Clip & invert
+  aax -= aaz;                         // Subtract motion factor from X, Y
+  aay -= aaz;
+  int16_t az2 = aaz * 2 + 1;         // Range of random motion to add back in
+
+  // ...and apply 2D accel vector to grain velocities...
+  int32_t v2; // Velocity squared
+  float   v;  // Absolute velocity
+  for(int i=0; i<N_GRAINS; i++) {
+    grain[i].vx += aax + random(az2); // A little randomness makes
+    grain[i].vy += aay + random(az2); // tall stacks topple better!
+    // Terminal velocity (in any direction) is 256 units -- equal to
+    // 1 pixel -- which keeps moving grains from passing through each other
+    // and other such mayhem.  Though it takes some extra math, velocity is
+    // clipped as a 2D vector (not separately-limited X & Y) so that
+    // diagonal movement isn't faster
+    v2 = (int32_t)grain[i].vx*grain[i].vx+(int32_t)grain[i].vy*grain[i].vy;
+    if(v2 > 65536) { // If v^2 > 65536, then v > 256
+      v = sqrt((float)v2); // Velocity vector magnitude
+      grain[i].vx = (int)(256.0*(float)grain[i].vx/v); // Maintain heading
+      grain[i].vy = (int)(256.0*(float)grain[i].vy/v); // Limit magnitude
+    }
+  }
+
+  // ...then update position of each grain, one at a time, checking for
+  // collisions and having them react.  This really seems like it shouldn't
+  // work, as only one grain is considered at a time while the rest are
+  // regarded as stationary.  Yet this naive algorithm, taking many not-
+  // technically-quite-correct steps, and repeated quickly enough,
+  // visually integrates into something that somewhat resembles physics.
+  // (I'd initially tried implementing this as a bunch of concurrent and
+  // "realistic" elastic collisions among circular grains, but the
+  // calculations and volument of code quickly got out of hand for both
+  // the tiny 8-bit AVR microcontroller and my tiny dinosaur brain.)
+
+  uint8_t        i, bytes, oldidx, newidx, delta;
+  int16_t        newx, newy;
+  //const uint8_t *ptr = remap;
+
+  for(i=0; i<N_GRAINS; i++) {
+    newx = grain[i].x + grain[i].vx; // New position in grain space
+    newy = grain[i].y + grain[i].vy;
+    if(newx > MAX_X) {               // If grain would go out of bounds
+      newx         = MAX_X;          // keep it inside, and
+      grain[i].vx /= -2;             // give a slight bounce off the wall
+    } else if(newx < 0) {
+      newx         = 0;
+      grain[i].vx /= -2;
+    }
+    if(newy > MAX_Y) {
+      newy         = MAX_Y;
+      grain[i].vy /= -2;
+    } else if(newy < 0) {
+      newy         = 0;
+      grain[i].vy /= -2;
+    }
+
+    oldidx = (grain[i].y/256) * WIDTH_G + (grain[i].x/256); // Prior pixel #
+    newidx = (newy      /256) * WIDTH_G + (newx      /256); // New pixel #
+    if((oldidx != newidx) && // If grain is moving to a new pixel...
+        img[newidx]) {       // but if that pixel is already occupied...
+      delta = abs(newidx - oldidx); // What direction when blocked?
+      if(delta == 1) {            // 1 pixel left or right)
+        newx         = grain[i].x;  // Cancel X motion
+        grain[i].vx /= -2;          // and bounce X velocity (Y is OK)
+        newidx       = oldidx;      // No pixel change
+      } else if(delta == WIDTH_G) { // 1 pixel up or down
+        newy         = grain[i].y;  // Cancel Y motion
+        grain[i].vy /= -2;          // and bounce Y velocity (X is OK)
+        newidx       = oldidx;      // No pixel change
+      } else { // Diagonal intersection is more tricky...
+        // Try skidding along just one axis of motion if possible (start w/
+        // faster axis).  Because we've already established that diagonal
+        // (both-axis) motion is occurring, moving on either axis alone WILL
+        // change the pixel index, no need to check that again.
+        if((abs(grain[i].vx) - abs(grain[i].vy)) >= 0) { // X axis is faster
+          newidx = (grain[i].y / 256) * WIDTH_G + (newx / 256);
+          if(!img[newidx]) { // That pixel's free!  Take it!  But...
+            newy         = grain[i].y; // Cancel Y motion
+            grain[i].vy /= -2;         // and bounce Y velocity
+          } else { // X pixel is taken, so try Y...
+            newidx = (newy / 256) * WIDTH_G + (grain[i].x / 256);
+            if(!img[newidx]) { // Pixel is free, take it, but first...
+              newx         = grain[i].x; // Cancel X motion
+              grain[i].vx /= -2;         // and bounce X velocity
+            } else { // Both spots are occupied
+              newx         = grain[i].x; // Cancel X & Y motion
+              newy         = grain[i].y;
+              grain[i].vx /= -2;         // Bounce X & Y velocity
+              grain[i].vy /= -2;
+              newidx       = oldidx;     // Not moving
+            }
+          }
+        } else { // Y axis is faster, start there
+          newidx = (newy / 256) * WIDTH_G + (grain[i].x / 256);
+          if(!img[newidx]) { // Pixel's free!  Take it!  But...
+            newx         = grain[i].x; // Cancel X motion
+            grain[i].vy /= -2;         // and bounce X velocity
+          } else { // Y pixel is taken, so try X...
+            newidx = (grain[i].y / 256) * WIDTH_G + (newx / 256);
+            if(!img[newidx]) { // Pixel is free, take it, but first...
+              newy         = grain[i].y; // Cancel Y motion
+              grain[i].vy /= -2;         // and bounce Y velocity
+            } else { // Both spots are occupied
+              newx         = grain[i].x; // Cancel X & Y motion
+              newy         = grain[i].y;
+              grain[i].vx /= -2;         // Bounce X & Y velocity
+              grain[i].vy /= -2;
+              newidx       = oldidx;     // Not moving
+            }
+          }
+        }
+      }
+    }
+    grain[i].x  = newx; // Update grain position
+    grain[i].y  = newy;
+    img[oldidx] = 0;    // Clear old spot (might be same as new, that's OK)
+    img[newidx] = 255;  // Set new spot
+  }
+
 }
 
 // Overlay Screen
@@ -821,6 +974,7 @@ void drawFrame6(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int1
         break;
     
         case 2:
+          since=millis();
           ui.nextFrame();
         break;
 
@@ -856,12 +1010,45 @@ void drawFrame6(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int1
      }
 }
 
+void drawFrame7(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {;
+      switch (read_buttons()){
+        case 1:
+          
+        break;
+    
+        case 2:
+          ui.nextFrame();
+        break;
+
+        case 3:
+          ui.previousFrame();
+        break;
+      }//End switch
+     //display->setTextAlignment(TEXT_ALIGN_LEFT);
+     display->setColor(WHITE);
+     //display->drawRect(53+x,21+y,22,22);
+     for (int i=0;i<N_GRAINS;i++){
+      //display->setPixel(grain[i].x/256 +54+ x,grain[i].y/256 +22+ y);
+      display->drawRect(grain[i].x/64 +x,grain[i].y/64+y,4,4);
+     }
+     
+     //if (millis()-since>30){ 
+       mueve_arena();
+       since=millis();
+     //}
+
+     display->setFont(ArialMT_Plain_10);
+     //display->drawString(0+x, 20+y, "X: " + String(grain[0].x) );
+     //display->drawString(0+x, 40+y, "Y: " + String(grain[0].y) );
+     
+}
+
 // This array keeps function pointers to all frames
 // frames are the single views that slide in
-FrameCallback frames[] = { drawFrame1, drawFrame2, drawFrame3, drawFrame4, drawFrame5, drawFrame6};
+FrameCallback frames[] = { drawFrame1, drawFrame2, drawFrame3, drawFrame4, drawFrame5, drawFrame6, drawFrame7};
 
 // how many frames are there?
-int frameCount = 6;
+int frameCount = 7;
 
 // Overlays are statically drawn on top of a frame eg. a clock
 OverlayCallback overlays[] = { msOverlay, msOverlay2 };
@@ -931,8 +1118,20 @@ for (int o = 0;o < numeroBolitas; o++){
   
   Serial.println("MPU6050 Initalized");
   cells_init(); 
-
-
+uint8_t i, j, bytes;
+memset(img, 0, sizeof(img)); // Clear the img[] array
+for(i=0; i<N_GRAINS; i++) {  // For each sand grain...
+    do {
+      grain[i].x = random(WIDTH_G  * 256); // Assign random position within
+      grain[i].y = random(HEIGHT_G * 256); // the 'grain' coordinate space
+      // Check if corresponding pixel position is already occupied...
+      for(j=0; (j<i) && (((grain[i].x / 256) != (grain[j].x / 256)) ||
+                         ((grain[i].y / 256) != (grain[j].y / 256))); j++);
+    } while(j < i); // Keep retrying until a clear spot is found
+    img[(grain[i].y / 256) * WIDTH_G + (grain[i].x / 256)] = 255; // Mark it
+    grain[i].vx = grain[i].vy = 0; // Initial velocity is zero
+  }
+  
 }
 
 
