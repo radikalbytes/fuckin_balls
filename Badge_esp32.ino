@@ -24,7 +24,8 @@ own license. Please check it at adafruit.com
 #include "images2.h"
 #include "Am_tw14.h"
 #include "Am_tw16.h"
-
+#include "fondo.h"
+#include "fondoswbg.h"
 
 
 // Initialize the OLED display using Wire library
@@ -159,9 +160,10 @@ int randnumber;
 int push = 0;
 
 //sand effect
-#define N_GRAINS     150 // Number of grains of sand
-#define WIDTH_G        31 // Display width in pixels
-#define HEIGHT_G       15 // Display height in pixels
+#define N_GRAINS    200 // Number of grains of sand
+const int size_grain = 2;
+const int WIDTH_G = 128/size_grain - 1; // Display width in pixels
+const int HEIGHT_G = 64/size_grain - 1; // Display height in pixels
 // The 'sand' grains exist in an integer coordinate space that's 256X
 // the scale of the pixel grid, allowing them to move and interact at
 // less than whole-pixel increments.
@@ -175,7 +177,7 @@ struct Grain {
 uint32_t        prevTime   = 0;      // Used for frames-per-second throttle
 uint8_t         backbuffer = 0;      // Index for double-buffered animation
 bool        img[WIDTH_G * HEIGHT_G]; // Internal 'map' of pixels
-                
+bool        imgbg[WIDTH_G * HEIGHT_G]; // Internal 'map' of pixels
 
 float mean ( float * _array, int len ){
   ave.clear();
@@ -519,88 +521,87 @@ void mueve_arena(){
   // calculations and volument of code quickly got out of hand for both
   // the tiny 8-bit AVR microcontroller and my tiny dinosaur brain.)
 
-  uint8_t        i_i, bytes;
+  uint8_t        l, bytes;
   int16_t        delta,oldidx,newidx;
   int16_t        newx, newy;
-  //const uint8_t *ptr = remap;
 
-  for(i_i=0; i_i<N_GRAINS; i_i++) {
-    newx = grain[i_i].x + grain[i_i].vx; // New position in grain space
-    newy = grain[i_i].y + grain[i_i].vy;
+  for(l=0; l<N_GRAINS; l++) {
+    newx = grain[l].x + grain[l].vx; // New position in grain space
+    newy = grain[l].y + grain[l].vy;
     if(newx > MAX_X) {               // If grain would go out of bounds
       newx         = MAX_X;          // keep it inside, and
-      grain[i_i].vx /= -1.2;             // give a slight bounce off the wall
+      grain[l].vx /= -1.2;             // give a slight bounce off the wall
     } else if(newx < 0) {
       newx         = 0;
-      grain[i_i].vx /= -1.2;
+      grain[l].vx /= -1.2;
     }
     if(newy > MAX_Y) {
       newy         = MAX_Y;
-      grain[i_i].vy /= -1.2;
+      grain[l].vy /= -1.2;
     } else if(newy < 0) {
       newy         = 0;
-      grain[i_i].vy /= -1.2;
+      grain[l].vy /= -1.2;
     }
 
-    oldidx = (grain[i_i].y/256) * WIDTH_G + (grain[i_i].x/256); // Prior pixel #
+    oldidx = (grain[l].y/256) * WIDTH_G + (grain[l].x/256); // Prior pixel #
     newidx = (newy      /256) * WIDTH_G + (newx      /256); // New pixel #
     if((oldidx != newidx) && // If grain is moving to a new pixel...
-        img[newidx]) {       // but if that pixel is already occupied...
+        (img[newidx]||imgbg[newidx])) {       // but if that pixel is already occupied...
       delta = abs(newidx - oldidx); // What direction when blocked?
       if(delta == 1) {            // 1 pixel left or right)
-        newx         = grain[i_i].x;  // Cancel X motion
-        grain[i_i].vx /= -2;          // and bounce X velocity (Y is OK)
+        newx         = grain[l].x;  // Cancel X motion
+        grain[l].vx /= -2;          // and bounce X velocity (Y is OK)
         newidx       = oldidx;      // No pixel change
       } else if(delta == WIDTH_G) { // 1 pixel up or down
-        newy         = grain[i_i].y;  // Cancel Y motion
-        grain[i_i].vy /= -2;          // and bounce Y velocity (X is OK)
+        newy         = grain[l].y;  // Cancel Y motion
+        grain[l].vy /= -2;          // and bounce Y velocity (X is OK)
         newidx       = oldidx;      // No pixel change
       } else { // Diagonal intersection is more tricky...
         // Try skidding along just one axis of motion if possible (start w/
         // faster axis).  Because we've already established that diagonal
         // (both-axis) motion is occurring, moving on either axis alone WILL
         // change the pixel index, no need to check that again.
-        if((abs(grain[i_i].vx) - abs(grain[i_i].vy)) >= 0) { // X axis is faster
-          newidx = (grain[i_i].y / 256) * WIDTH_G + (newx / 256);
+        if((abs(grain[l].vx) - abs(grain[l].vy)) >= 0) { // X axis is faster
+          newidx = (grain[l].y / 256) * WIDTH_G + (newx / 256);
           if(!img[newidx]) { // That pixel's free!  Take it!  But...
-            newy         = grain[i_i].y; // Cancel Y motion
-            grain[i_i].vy /= -2;         // and bounce Y velocity
+            newy         = grain[l].y; // Cancel Y motion
+            grain[l].vy /= -2;         // and bounce Y velocity
           } else { // X pixel is taken, so try Y...
-            newidx = (newy / 256) * WIDTH_G + (grain[i_i].x / 256);
-            if(!img[newidx]) { // Pixel is free, take it, but first...
-              newx         = grain[i_i].x; // Cancel X motion
-              grain[i_i].vx /= -2;         // and bounce X velocity
+            newidx = (newy / 256) * WIDTH_G + (grain[l].x / 256);
+            if(!img[newidx]&& !imgbg[newidx]) { // Pixel is free, take it, but first...
+              newx         = grain[l].x; // Cancel X motion
+              grain[l].vx /= -2;         // and bounce X velocity
             } else { // Both spots are occupied
-              newx         = grain[i_i].x; // Cancel X & Y motion
-              newy         = grain[i_i].y;
-              grain[i_i].vx /= -2;         // Bounce X & Y velocity
-              grain[i_i].vy /= -2;
+              newx         = grain[l].x; // Cancel X & Y motion
+              newy         = grain[l].y;
+              grain[l].vx /= -2;         // Bounce X & Y velocity
+              grain[l].vy /= -2;
               newidx       = oldidx;     // Not moving
             }
           }
         } else { // Y axis is faster, start there
-          newidx = (newy / 256) * WIDTH_G + (grain[i_i].x / 256);
-          if(!img[newidx]) { // Pixel's free!  Take it!  But...
-            newx         = grain[i_i].x; // Cancel X motion
-            grain[i_i].vy /= -2;         // and bounce X velocity
+          newidx = (newy / 256) * WIDTH_G + (grain[l].x / 256);
+          if(!img[newidx]&& !imgbg[newidx]) { // Pixel's free!  Take it!  But...
+            newx         = grain[l].x; // Cancel X motion
+            grain[l].vy /= -2;         // and bounce X velocity
           } else { // Y pixel is taken, so try X...
-            newidx = (grain[i_i].y / 256) * WIDTH_G + (newx / 256);
-            if(!img[newidx]) { // Pixel is free, take it, but first...
-              newy         = grain[i_i].y; // Cancel Y motion
-              grain[i_i].vy /= -2;         // and bounce Y velocity
+            newidx = (grain[l].y / 256) * WIDTH_G + (newx / 256);
+            if(!img[newidx]&& !imgbg[newidx]) { // Pixel is free, take it, but first...
+              newy         = grain[l].y; // Cancel Y motion
+              grain[l].vy /= -2;         // and bounce Y velocity
             } else { // Both spots are occupied
-              newx         = grain[i_i].x; // Cancel X & Y motion
-              newy         = grain[i_i].y;
-              grain[i_i].vx /= -2;         // Bounce X & Y velocity
-              grain[i_i].vy /= -2;
+              newx         = grain[l].x; // Cancel X & Y motion
+              newy         = grain[l].y;
+              grain[l].vx /= -2;         // Bounce X & Y velocity
+              grain[l].vy /= -2;
               newidx       = oldidx;     // Not moving
             }
           }
         }
       }
     }
-    grain[i_i].x  = newx; // Update grain position
-    grain[i_i].y  = newy;
+    grain[l].x  = newx; // Update grain position
+    grain[l].y  = newy;
     img[oldidx] = 0;    // Clear old spot (might be same as new, that's OK)
     img[newidx] = 1;  // Set new spot
   }
@@ -1019,14 +1020,9 @@ void drawFrame6(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int1
 void drawFrame7(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {;
       switch (read_buttons()){
         case 1:
-          Serial.println(sizeof(img));
-          for(int qwerty=0;qwerty<(sizeof(img));qwerty++){
-            if (img[qwerty]) Serial.print("1");
-            else Serial.print("0");
-            if (qwerty%WIDTH_G==0) Serial.println();
-          }
+          Serial.println(sizeof(fondo));
+          
           Serial.println();
-          delay(60);
         break;
     
         case 2:
@@ -1038,19 +1034,20 @@ void drawFrame7(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int1
         break;
       } //End switch
      display->setColor(WHITE);
-     /*
-     for (int16_t rr=0;rr<sizeof(img);rr++){
-      if(img[rr]) display->drawRect( (rr%WIDTH_G)*4 +x, (rr/WIDTH_G)*4 +y,4,4);
-      Serial.print((rr%WIDTH_G)*4);
-      Serial.print(",");
-      Serial.println((rr/WIDTH_G)*4);
-      
-     }*/
+     int ww = 256/size_grain;
+     int radius = size_grain/2;
+     //display->drawXbm(0+x,0+y,fondo_width,fondo_height,fondo);
      
-     for (int i=0;i<N_GRAINS;i++){
-      //display->setPixel(grain[i].x/256 +54+ x,grain[i].y/256 +22+ y);
-      display->drawRect(grain[i].x/64 +x,grain[i].y/64+y,4,4);
+     for (int16_t rr=0;rr<sizeof(img);rr++){
+      if(img[rr]) //display->drawRect( (rr%WIDTH_G)*4 +x, (rr/WIDTH_G)*4 +y,4,4);
+        display->drawRect(rr%WIDTH_G*size_grain +x,rr/WIDTH_G*size_grain +y,size_grain,size_grain);
      }
+     
+     /*
+     for (int i=0;i<N_GRAINS;i++){
+      display->drawRect(grain[i].x/ww +x,grain[i].y/ww +y,size_grain,size_grain);
+      //display->drawCircle(grain[i].x/ww+ radius +x,grain[i].y/ww+ radius +y,radius);
+     }*/
      
      //if (millis()-since>30){ 
        mueve_arena();
@@ -1073,6 +1070,46 @@ int frameCount = 7;
 // Overlays are statically drawn on top of a frame eg. a clock
 OverlayCallback overlays[] = { msOverlay, msOverlay2 };
 int overlaysCount = 0;
+
+
+void ponXbm(int16_t width, int16_t height, const char *xbm) {
+  int16_t widthInXbm = (width + 7) / 8;
+  uint8_t data;
+
+  for(int16_t y = 0; y < height; y++) {
+    for(int16_t x = 0; x < width; x++ ) {
+      if (x & 7) {
+        data >>= 1; // Move a bit
+      } else {  // Read new data every 8 bit
+        data = pgm_read_byte(xbm + (x / 8) + y * widthInXbm);
+      }
+      // if there is a bit draw it
+      if (data & 0x01) {
+        img[y*63+x]=1;
+      }
+    }
+  }
+}
+
+
+void ponXbmBg(int16_t width, int16_t height, const char *xbm) {
+  int16_t widthInXbm = (width + 7) / 8;
+  uint8_t data;
+
+  for(int16_t y = 0; y < height; y++) {
+    for(int16_t x = 0; x < width; x++ ) {
+      if (x & 7) {
+        data >>= 1; // Move a bit
+      } else {  // Read new data every 8 bit
+        data = pgm_read_byte(xbm + (x / 8) + y * widthInXbm);
+      }
+      // if there is a bit draw it
+      if (data & 0x01) {
+        imgbg[y*63+x]=1;
+      }
+    }
+  }
+}
 
 void setup() {
   //Button mode input
@@ -1140,13 +1177,16 @@ for (int o = 0;o < numeroBolitas; o++){
   cells_init(); 
 uint8_t iii, jjj, bytes;
 memset(img, 0, sizeof(img)); // Clear the img[] array
+memset(imgbg, 0, sizeof(imgbg)); // Clear the img[] array
+ponXbm(fondo_width,fondo_height,fondo);
+ponXbmBg(fondoswbg_width,fondoswbg_height,fondoswbg);
 for(iii=0; iii<N_GRAINS; iii++) {  // For each sand grain...
     do {
-      grain[iii].x = random(WIDTH_G  * 256); // Assign random position within
+      grain[iii].x = (random(31)+30)*256;//(WIDTH_G  * 256); // Assign random position within
       grain[iii].y = random(HEIGHT_G * 256); // the 'grain' coordinate space
       // Check if corresponding pixel position is already occupied...
       for(jjj=0; (jjj<iii) && (((grain[iii].x / 256) != (grain[jjj].x / 256)) ||
-                         ((grain[iii].y / 256) != (grain[jjj].y / 256))); jjj++);
+                         ((grain[iii].y / 256) != (grain[jjj].y / 256)) && (imgbg[(grain[iii].y/256*63)+(grain[iii].x/256)]==0)); jjj++);
     } while(jjj < iii); // Keep retrying until a clear spot is found
     img[(grain[iii].y / 256) * WIDTH_G + (grain[iii].x / 256)] = 1; // Mark it
     grain[iii].vx = grain[iii].vy = 0; // Initial velocity is zero
