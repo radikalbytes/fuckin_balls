@@ -1071,7 +1071,9 @@ int frameCount = 7;
 OverlayCallback overlays[] = { msOverlay, msOverlay2 };
 int overlaysCount = 0;
 
-
+/*
+ * Put a XBM as background to make obstacles
+ */
 void ponXbm(int16_t width, int16_t height, const char *xbm) {
   int16_t widthInXbm = (width + 7) / 8;
   uint8_t data;
@@ -1085,13 +1087,15 @@ void ponXbm(int16_t width, int16_t height, const char *xbm) {
       }
       // if there is a bit draw it
       if (data & 0x01) {
-        img[y*63+x]=1;
+        img[y*WIDTH_G+x]=1;
       }
     }
   }
 }
 
-
+/*
+ * Put a XBM background obstacle mask 
+ */
 void ponXbmBg(int16_t width, int16_t height, const char *xbm) {
   int16_t widthInXbm = (width + 7) / 8;
   uint8_t data;
@@ -1105,7 +1109,7 @@ void ponXbmBg(int16_t width, int16_t height, const char *xbm) {
       }
       // if there is a bit draw it
       if (data & 0x01) {
-        imgbg[y*63+x]=1;
+        imgbg[y*WIDTH_G+x]=1;
       }
     }
   }
@@ -1186,7 +1190,7 @@ for(iii=0; iii<N_GRAINS; iii++) {  // For each sand grain...
       grain[iii].y = random(HEIGHT_G * 256); // the 'grain' coordinate space
       // Check if corresponding pixel position is already occupied...
       for(jjj=0; (jjj<iii) && (((grain[iii].x / 256) != (grain[jjj].x / 256)) ||
-                         ((grain[iii].y / 256) != (grain[jjj].y / 256)) && (imgbg[(grain[iii].y/256*63)+(grain[iii].x/256)]==0)); jjj++);
+                         ((grain[iii].y / 256) != (grain[jjj].y / 256)) && (imgbg[(grain[iii].y/256*WIDTH_G)+(grain[iii].x/256)]==0)); jjj++);
     } while(jjj < iii); // Keep retrying until a clear spot is found
     img[(grain[iii].y / 256) * WIDTH_G + (grain[iii].x / 256)] = 1; // Mark it
     grain[iii].vx = grain[iii].vy = 0; // Initial velocity is zero
