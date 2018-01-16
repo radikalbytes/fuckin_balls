@@ -160,7 +160,7 @@ int randnumber;
 int push = 0;
 
 //sand effect
-#define N_GRAINS    200 // Number of grains of sand
+#define N_GRAINS    500 // Number of grains of sand
 const int size_grain = 2;
 const int WIDTH_G = 128/size_grain - 1; // Display width in pixels
 const int HEIGHT_G = 64/size_grain - 1; // Display height in pixels
@@ -494,7 +494,7 @@ void mueve_arena(){
   // ...and apply 2D accel vector to grain velocities...
   int32_t v2; // Velocity squared
   float   v;  // Absolute velocity
-  for(int i=0; i<N_GRAINS; i++) {
+  for(int16_t i=0; i<N_GRAINS; i++) {
     grain[i].vx += aax + random(az2); // A little randomness makes
     grain[i].vy += aay + random(az2); // tall stacks topple better!
     // Terminal velocity (in any direction) is 256 units -- equal to
@@ -521,7 +521,8 @@ void mueve_arena(){
   // calculations and volument of code quickly got out of hand for both
   // the tiny 8-bit AVR microcontroller and my tiny dinosaur brain.)
 
-  uint8_t        l, bytes;
+  uint16_t       l;  
+  uint8_t        bytes;
   int16_t        delta,oldidx,newidx;
   int16_t        newx, newy;
 
@@ -1179,7 +1180,7 @@ for (int o = 0;o < numeroBolitas; o++){
   
   Serial.println("MPU6050 Initalized");
   cells_init(); 
-uint8_t iii, jjj, bytes;
+uint16_t iii, jjj, bytes;
 memset(img, 0, sizeof(img)); // Clear the img[] array
 memset(imgbg, 0, sizeof(imgbg)); // Clear the img[] array
 ponXbm(fondo_width,fondo_height,fondo);
