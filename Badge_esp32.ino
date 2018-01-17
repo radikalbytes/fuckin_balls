@@ -25,7 +25,7 @@ own license. Please check it at adafruit.com
 #include "Am_tw14.h"
 #include "Am_tw16.h"
 #include "fondo.h"
-#include "fondoswbg.h"
+#include "fondomask.h"
 
 
 // Initialize the OLED display using Wire library
@@ -160,8 +160,8 @@ int randnumber;
 int push = 0;
 
 //sand effect
-#define N_GRAINS    500 // Number of grains of sand
-const int size_grain = 2;
+#define N_GRAINS   250 // Number of grains of sand
+const int size_grain = 3;
 const int WIDTH_G = 128/size_grain - 1; // Display width in pixels
 const int HEIGHT_G = 64/size_grain - 1; // Display height in pixels
 // The 'sand' grains exist in an integer coordinate space that's 256X
@@ -169,6 +169,7 @@ const int HEIGHT_G = 64/size_grain - 1; // Display height in pixels
 // less than whole-pixel increments.
 #define MAX_X (WIDTH_G  * 256 - 1) // Maximum X coordinate in grain space
 #define MAX_Y (HEIGHT_G * 256 - 1) // Maximum Y coordinate
+bool background = 0;
 struct Grain {
   int16_t  x,  y; // Position
   int16_t vx, vy; // Velocity
@@ -483,8 +484,8 @@ void mueve_arena(){
   aaz = rawAccel.ZAxis;
   if (aaz>32767) aaz = aaz - 65535;
   
-  aax = aax / 256;      // Transform accelerometer axes
-  aay =  aay / 256;      // to grain coordinate space
+  aax = aax / 200;      // Transform accelerometer axes
+  aay =  aay / 200;      // to grain coordinate space
   aaz = abs(aaz) / 2048; // Random motion factor
   aaz = (aaz >= 3) ? 1 : 4 - aaz;      // Clip & invert
   aax -= aaz;                         // Subtract motion factor from X, Y
@@ -1181,13 +1182,22 @@ for (int o = 0;o < numeroBolitas; o++){
   Serial.println("MPU6050 Initalized");
   cells_init(); 
 uint16_t iii, jjj, bytes;
+//internal mem screen
 memset(img, 0, sizeof(img)); // Clear the img[] array
+//Mask mem screen
 memset(imgbg, 0, sizeof(imgbg)); // Clear the img[] array
-ponXbm(fondo_width,fondo_height,fondo);
-ponXbmBg(fondoswbg_width,fondoswbg_height,fondoswbg);
+
+if (background==1) {
+  ponXbm(fondo_width,fondo_height,fondo);
+  ponXbmBg(fondomask_width,fondomask_height,fondomask);
+}
+
 for(iii=0; iii<N_GRAINS; iii++) {  // For each sand grain...
     do {
-      grain[iii].x = (random(31)+30)*256;//(WIDTH_G  * 256); // Assign random position within
+      if (background==1)
+        grain[iii].x = (random(23)+40)*256; // Assign random position within
+      else
+        grain[iii].x = random(WIDTH_G  * 256); // Assign random position within
       grain[iii].y = random(HEIGHT_G * 256); // the 'grain' coordinate space
       // Check if corresponding pixel position is already occupied...
       for(jjj=0; (jjj<iii) && (((grain[iii].x / 256) != (grain[jjj].x / 256)) ||
