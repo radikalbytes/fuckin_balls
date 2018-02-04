@@ -160,8 +160,8 @@ int randnumber;
 int push = 0;
 
 //sand effect
-#define N_GRAINS   250 // Number of grains of sand
-const int size_grain = 3;
+#define N_GRAINS   125 // Number of grains of sand
+const int size_grain = 4;
 const int WIDTH_G = 128/size_grain - 1; // Display width in pixels
 const int HEIGHT_G = 64/size_grain - 1; // Display height in pixels
 // The 'sand' grains exist in an integer coordinate space that's 256X
@@ -484,8 +484,8 @@ void mueve_arena(){
   aaz = rawAccel.ZAxis;
   if (aaz>32767) aaz = aaz - 65535;
   
-  aax = aax / 200;      // Transform accelerometer axes
-  aay =  aay / 200;      // to grain coordinate space
+  aax = aax / 256;      // Transform accelerometer axes
+  aay =  aay / 256;      // to grain coordinate space
   aaz = abs(aaz) / 2048; // Random motion factor
   aaz = (aaz >= 3) ? 1 : 4 - aaz;      // Clip & invert
   aax -= aaz;                         // Subtract motion factor from X, Y
